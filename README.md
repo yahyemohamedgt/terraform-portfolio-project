@@ -2,7 +2,7 @@ Next.js Portfolio — AWS Infrastructure as Code
 
 A production-style static site deployment: Next.js exported to S3, served globally through CloudFront, with every AWS resource defined, versioned, and reproducible in Terraform.
 
-🌐 Live: d10ohi5marhqs6.cloudfront.net
+🌐 Live: https://d10ohi5marhqs6.cloudfront.net
 
 What This Is
 Most portfolio sites are deployed by dragging files into a UI or clicking "Deploy" on Vercel.
@@ -11,23 +11,23 @@ Every AWS resource — the S3 bucket, the bucket policy, the Origin Access Ident
 That's the point.
 
 Architecture
-                        ┌─────────────────────────────────────┐
-                        │         AWS CloudFront CDN           │
-                        │    400+ Edge Locations Worldwide     │
-                        │    HTTPS · IPv6 · 24hr Cache TTL     │
-                        └──────────────────┬──────────────────┘
-                                           │ Origin Access Identity
-                                           │ (private S3 access)
-                        ┌──────────────────▼──────────────────┐
-                        │            AWS S3 Bucket             │
-                        │       Static File Hosting            │
-                        │   HTML · CSS · JS · Assets           │
-                        └──────────────────┬──────────────────┘
-                                           │
-                        ┌──────────────────▼──────────────────┐
-                        │         Next.js Static Export        │
-                        │      npm run build → /out            │
-                        └─────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│         AWS CloudFront CDN          │
+│   400+ Edge Locations Worldwide     │
+│   HTTPS · IPv6 · 24hr Cache TTL     │
+└──────────────────┬──────────────────┘
+                   │  Origin Access Identity
+                   │  (private S3 access)
+┌──────────────────▼──────────────────┐
+│           AWS S3 Bucket             │
+│      Static File Hosting            │
+│   HTML · CSS · JS · Assets          │
+└──────────────────┬──────────────────┘
+                   │
+┌──────────────────▼──────────────────┐
+│       Next.js Static Export         │
+│     npm run build → /out            │
+└─────────────────────────────────────┘
 
 Infrastructure Resources
 All defined in terraform-js/main.tf:
@@ -41,80 +41,67 @@ hclterraform {
     key          = "portfolio/terraform.tfstate"
     region       = "us-east-1"
     encrypt      = true
-    use_lockfile = true    # Terraform 1.10+ native locking — no DynamoDB needed
+    use_lockfile = true
   }
 }
-State locking uses Terraform's native S3 locking (use_lockfile) introduced in 1.10 — replacing the older DynamoDB approach with a simpler, cheaper single-service solution.
+Uses Terraform 1.10+ native S3 locking — no DynamoDB table needed.
 
 Project Structure
 terraform-portfolio-project/
-│
-├── nextjs-blog/                  # Next.js application
+├── nextjs-blog/
 │   ├── pages/
-│   │   └── index.js              # Portfolio page
+│   │   └── index.js          # Portfolio page
 │   ├── styles/
-│   │   └── Home.module.css       # Dark gradient design system
+│   │   └── Home.module.css   # Dark gradient design system
 │   ├── public/
-│   └── next.config.js            # output: 'export' for static generation
+│   └── next.config.js        # output: 'export' for static generation
 │
-└── terraform-js/                 # Infrastructure as Code
-    ├── main.tf                   # All AWS resources
-    ├── state.tf                  # Remote backend configuration
-    └── outputs.tf                # CloudFront URL + bucket name
+└── terraform-js/
+    ├── main.tf                # All AWS resources
+    ├── state.tf               # Remote backend config
+    └── outputs.tf             # CloudFront URL + bucket name
 
 Deploy From Scratch
-Prerequisites
+Prerequisites: AWS CLI · Terraform >= 1.10 · Node.js >= 18
+bash# 1. Clone the repo
+git clone https://github.com/yahyemohamedgt/terraform-portfolio-project.git
+cd terraform-portfolio-project
 
-AWS CLI configured with appropriate IAM permissions
-Terraform >= 1.10
-Node.js >= 18
-
-1. Clone and provision infrastructure
-bashgit clone https://github.com/yahyemohamedgt/terraform-portfolio-project.git
-cd terraform-portfolio-project/terraform-js
-
+# 2. Provision infrastructure
+cd terraform-js
 terraform init
 terraform plan
 terraform apply
-2. Build the Next.js app
-bashcd ../nextjs-blog
-npm install
-npm run build
-3. Deploy to S3
-bashcd ..
+
+# 3. Build the Next.js app
+cd ../nextjs-blog
+npm install && npm run build
+
+# 4. Upload to S3
+cd ..
 aws s3 sync ./nextjs-blog/out s3://16-nextjs-terraform-bucket
-4. Get the live URL
-bashcd terraform-js && terraform output cloudfront_url
-5. Push updates (invalidate CloudFront cache)
+
+# 5. Get the live URL
+cd terraform-js && terraform output cloudfront_url
+On updates — invalidate the CloudFront cache:
 bashaws cloudfront create-invalidation --distribution-id EN5KM20QD7UJZ --paths "/*"
 
 Teardown
-bashcd terraform-js
-terraform destroy
+bashcd terraform-js && terraform destroy
 Every resource created. Every resource gone. Zero orphaned infrastructure.
 
 Design Decisions
-S3 + CloudFront over Vercel
-Full infrastructure ownership, lower cost at scale, and everything version-controlled as code. CloudFront's 400+ edge locations match Vercel's performance for static sites — without vendor lock-in.
-use_lockfile over DynamoDB
-Terraform 1.10 introduced native S3 locking. One service instead of two, no table schema to manage, no LockID key mismatches. Simpler and cheaper.
-Static export over SSR
-A portfolio site has no server-side requirements. Static export produces pure HTML/CSS/JS — cacheable at the edge indefinitely, zero compute costs, zero cold starts.
-OAI for S3 access
-The S3 bucket is accessed through a CloudFront Origin Access Identity rather than a public endpoint. CloudFront handles all public traffic; S3 remains private.
+S3 + CloudFront over Vercel — Full infrastructure ownership, version-controlled as code, no vendor lock-in. Same global performance at a fraction of the cost for static sites.
+use_lockfile over DynamoDB — Terraform 1.10 introduced native S3 locking. One service instead of two, no table schema to manage, no LockID key mismatches.
+Static export over SSR — No server-side requirements. Pure HTML/CSS/JS, cached aggressively at the edge, zero compute costs, zero cold starts.
+OAI for S3 access — CloudFront accesses S3 through a private Origin Access Identity. S3 is never exposed directly to the public internet.
 
 Part of a Larger Build
-This project sits in the middle of a deliberate infrastructure progression:
-CloudFormation (VPC · EC2 · ASG · RDS · IAM)
-        ↓
-Terraform Portfolio (this repo)
-        ↓
-Terraform VPC Rebuild (same CF architecture, rewritten in Terraform)
-        ↓
-TriageHQ on AWS (multi-tenant AI support platform · RAG · Bedrock · ECS · RDS)
-Each project builds on the last. The goal is a single terraform apply that deploys an entire AI product.
+✅ CloudFormation  →  VPC · EC2 · ASG · RDS · IAM
+✅ Terraform Portfolio  →  this repo
+⬜ Terraform VPC Rebuild  →  same architecture, rewritten in Terraform
+⬜ TriageHQ on AWS  →  multi-tenant AI platform · RAG · Bedrock · ECS · RDS
+The goal: a single terraform apply that deploys an entire AI product.
 → CloudFormation repo
 
-Author
-Yahye Mohamed — AI Cloud Engineer
-Building AI infrastructure at the intersection of operational reliability and cloud systems.
+Yahye Mohamed — AI Cloud Engineer 
